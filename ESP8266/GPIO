@@ -1,0 +1,113 @@
+-- 11.03.2018 10:06:25 AR V1.0a
+
+block.setSize(101, 21)
+
+generic = {
+  parameter = {
+    pin = 0,
+    mode = 0,
+    invert = false,
+  },
+
+  pins = {'GPIO0', 'GPIO1', 'GPIO2', 'GPIO3', 'GPIO4', 'GPIO5', 'GPIO9', 'GPIO10', 'GPIO12', 'GPIO13', 'GPIO14', 'GPIO15', 'GPIO16'},
+  indexToId = {3, 10, 4, 9, 2, 1, 11, 12, 6, 7, 5, 8, 0},
+
+  refreshPins = function(self)
+    if self.parameter.mode <= 1 then
+      block.setInputsPinCount(0)
+      block.setOutputsPinCount(1)
+      block.setOutputPinTypeRestrains(1, 'boolean')
+    else
+      block.setInputsPinCount(1)
+      block.setOutputsPinCount(0)
+      block.setInputPinTypeRestrains(1, 'boolean')
+    end
+  end,
+
+  init = function(self)
+    generic.refreshPins(self)
+    block.modifyFlags('SupressStartFunctionCall', true)
+    block.modifyFlags('SupressStopFunctionCall', true)
+  end,
+
+  open = function(self)
+    gui.add('Info', 'Info', 'GPIO', [[
+Set mode of a GPIO pin
+    ]])
+    gui.add('ComboBox', 'ComboBoxPin', 'Pin', table.concat(generic.pins, '\n'), {DropDownCount = 20})
+    gui.add('ComboBox', 'ComboBoxMode', 'Mode', [[
+      Input
+      Input with pullup
+      Output
+      Output with open drain
+    ]])
+    gui.add('CheckBox', 'CheckBoxInvert', 'Invert signal')
+    gui.set('ComboBoxPin', 'ItemIndex', self.parameter.pin)
+    gui.set('ComboBoxMode', 'ItemIndex', self.parameter.mode)
+    gui.set('CheckBoxInvert', 'Checked', self.parameter.invert)
+    gui.setSize()
+  end,
+
+  apply = function(self)
+    self.parameter.pin = gui.get('ComboBoxPin', 'ItemIndex')
+    self.parameter.mode = gui.get('ComboBoxMode', 'ItemIndex')
+    self.parameter.invert = gui.get('CheckBoxInvert', 'Checked')
+    generic.refreshPins(self)
+  end,
+
+  close = function()
+  end,
+
+  avatar = function(self)
+    return block.getDefaultAvatar{
+      Type = 0x5E,
+      CenterDrawSource = 'draw.setColorA(0.8, 0.8, 0.8) draw.text(0, 0, w, h, "' .. generic.pins[self.parameter.pin + 1] .. '", 4)',
+      FillColorSource = '0.36, 0.37, 0.42',
+      PinNameColorSource = '1, 1, 1',
+    }
+  end,
+
+  generate = function(self, remote)
+    if not remote then
+      return nil
+    end
+    local _, _, group = remote:find('(%w*)')
+    if group ~= 'ESP8266' then
+      return nil
+    end
+    local source =
+      [==[
+        local block = {}
+
+        block.start = function()
+          START
+        end
+
+        block.step = function(INPUT)
+          STEP
+        end
+
+        return block
+      ]==]
+    local init = {"gpio.INPUT", "gpio.INPUT, gpio.PULLUP", "gpio.OUTPUT", "gpio.OPENDRAIN"}
+    local step
+    if self.parameter.mode <= 1 then
+      step = 'return' .. (self.parameter.invert and 'not' or '') .. ' gpio.read(' .. generic.indexToId[self.parameter.pin + 1] .. ')'
+    else
+      if self.parameter.invert then
+        step = 'gpio.write(' .. generic.indexToId[self.parameter.pin + 1] .. ', a and gpio.LOW or gpio.HIGH)'
+      else
+        step = 'gpio.write(' .. generic.indexToId[self.parameter.pin + 1] .. ', a and gpio.HIGH or gpio.LOW)'
+      end
+    end
+    local replaces = {
+      ['NAME'] = self.name,
+      ['INPUT'] = self.parameter.pin <= 1 and '' or 'a',
+      ['START'] = 'gpio.write(' .. generic.indexToId[self.parameter.pin + 1] .. ', ' .. init[self.parameter.mode + 1] .. ')',
+      ['STEP'] = step
+    }
+    return string.gsub(source, '%a+', replaces)
+  end,
+
+}
+
