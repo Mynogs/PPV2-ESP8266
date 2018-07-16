@@ -1,0 +1,154 @@
+-- 08.06.2018 11:12:54 AR V1.0a
+
+-- Based on https://github.com/nodemcu/nodemcu-firmware/blob/master/lua_examples/webap_toggle_pin.lua
+
+generic = {
+  parameter = {
+    outputNames = 'q\nr\ns\n',
+    title = '<h1>ESP8266 APSwitches</h1>',
+    ssid = 'ESP8266',
+    passWord = '12345678',
+  },
+
+  refreshPins = function(self)
+    local names = {}
+    for name in self.parameter.outputNames:gmatch('([^%c]*)\n') do
+      names[#names + 1] = name
+    end
+    block.setOutputsPinCount(#names)
+    for i = 1, #names do
+      block.setOutputPinName(i, names[i])
+      block.setOutputPinTypeRestrains(i, 'boolean')
+    end
+  end,
+
+  init = function(self)
+    block.needPPVersion(2, 0, 'd')
+    block.modifyFlags('SupressStopFunctionCall', true)
+    generic.refreshPins(self)
+  end,
+
+  open = function(self)
+    gui.add('Memo', 'MemoOutputNames', 'Output names', {RemoveEmptyLines = false})
+    gui.add('Edit', 'EditTitle', 'Title', {Width = 400})
+    gui.add('Edit', 'EditSSID', 'SSID')
+    gui.add('Edit', 'EditPassWord', 'Password')
+    gui.set('MemoOutputNames', 'Text', self.parameter.outputNames)
+    gui.set('EditTitle', 'Text', self.parameter.title)
+    gui.set('EditSSID', 'Text', self.parameter.ssid)
+    gui.set('EditPassWord', 'Text', self.parameter.passWord)
+
+    gui.setSize()
+  end,
+
+  apply = function(self)
+    self.parameter.outputNames = gui.get('MemoOutputNames', 'Text')
+    self.parameter.title = gui.get('EditTitle', 'Text')
+    self.parameter.ssid = gui.get('EditSSID', 'Text')
+    self.parameter.passWord = gui.get('EditPassWord', 'Text')
+    generic.refreshPins(self)
+  end,
+
+  close = function()
+  end,
+
+  avatar = function(self)
+    return block.getDefaultAvatar{
+      Type = 0x50,
+      CenterDrawSource = 'draw.setColorA(0.8, 0.8, 0.8) draw.text(0, 0, w, h, "AP", 4)',
+      FillColorSource = '0.36, 0.37, 0.42',
+      PinNameColorSource = '1, 1, 1',
+    }
+  end,
+
+  generate = function(self, remote)
+    if not remote then
+      return false
+    end
+    local _, _, group = remote:find('(%w*)')
+    if group ~= 'ESP8266' then
+      return false
+    end
+
+    local source =
+      [==[
+        local block = {}
+
+        block.outputs = {OUTPUTS}
+
+        block.receive = function(client, request)
+          print(request)
+          local _, _, method, path, vars = request:find('(%u+) (.+)?(.+) HTTP')
+          if not method then
+            _, _, method, path = request:find('(%u+) (.+) HTTP')
+          end
+          local get = {}
+          if vars then
+            for k, v in vars:gmatch('(%w+)=(%w+)&*') do
+              local i = tonumber(k:match('q(%d+)'))
+              if i then
+                if v == 'On' then
+                  block.q[i] = true
+                elseif v == 'Off' then
+                  block.q[i] = false
+                end
+              end
+            end
+          end
+          client:send('TITLE\n')
+          client:send('<form src="/">\n')
+          for i = 1, #block.outputs do
+            client:send('<br>' .. block.outputs[i] .. ' <select name="q' .. i .. '" onchange="form.submit()">')
+            client:send('<option' .. (block.q[i] and ' selected' or '') .. '>On</option><option' .. (block.q[i] and '' or ' selected') .. '>Off</option>')
+            client:send('</select>\n')
+          end
+          client:send('</form>')
+        end
+
+        block.send = function(c)
+          c:close()
+        end
+
+        block.start = function()
+          block.q = false
+          wifi.setmode(wifi.SOFTAP)
+          wifi.ap.config({ssid='SSID', pwd='PASSWORD'})
+          srv = net.createServer(net.TCP)
+          srv:listen(
+            80,
+            function(conn)
+              conn:on('receive', block.receive)
+              conn:on('sent', block.send)
+            end
+          )
+          block.q = {}
+          for i = 1, OUTPUTCOUNT do
+            block.q[i] = false
+          end
+        end
+
+        block.step = function()
+          return unpack(block.q)
+        end
+
+        return block
+      ]==]
+    local names = {}
+    for name in self.parameter.outputNames:gmatch('([^%c]*)\n') do
+      names[#names + 1] = '"' .. name .. '"'
+    end
+    local replaces = {
+      ['TITLE'] = self.parameter.title,
+      ['OUTPUTCOUNT'] = #names,
+      ['OUTPUTS'] = table.concat(names, ','),
+      ['SSID'] = self.parameter.ssid,
+      ['PASSWORD'] = self.parameter.passWord,
+    }
+    return string.gsub(source, '%a+', replaces), block.codeInfo('TargetSpecial', 'Lua51')
+  end,
+
+}
+
+local block = {}
+
+
