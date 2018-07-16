@@ -5,9 +5,13 @@
 --* strictly prohibited. Proprietary and confidential.
 --* Written by Andre Riesberg <andre@riesberg-net.de>
 --***************************************************************************/
+-- 21.06.2018 07:10:23 AR V1.0c
+-- 12.07.2018 06:33:23 AR V1.0d Early message after node.restart catched and displayed
+--                              in the console window
 
 target = {
   name = 'ESP8266 NodeMCU',
+  lua = 5.1,
 
   parameter = {
     com = 4,
@@ -81,23 +85,29 @@ end
 
     sys.debug('Injector start')
 
+    injector.needPPVersion(2, 0, 'c')
+    injector.assert(
+      injector.projectHasFlags('RunInRealtime', 'Endless', 'SaveMemory'),
+      "Injector needs project options 'RunInRealtime', 'Endless' and 'SaveMemory'"
+    )
+
     local esp = serial.new(self.parameter.com)
     esp:open(self.parameter.baud, 8, 'N', 1)
 
     local function s(s)
-      --print(s)
       esp:send(s .. '\n')
       esp:recv()
-      --sys.debug(esp:recv())
     end
 
-    s("node.restart()")
+    esp:recv()
+    esp:send("node.restart()\n")
     sys.sleep(0.5)
-    print(esp:recv())
-    
+    local restartMessage = esp:recv()
+    --print(esp:recv())
+
     for i = 1, #files do
       local f = io.open(files[i].host, 'rb')
-      injector.assert(f:read(1) ~= 27, 'Injector don\'t support precompiled files') 
+      injector.assert(f:read(1) ~= 27, 'Injector don\'t support precompiled files')
     end
 
     -- Count the total number of lines
@@ -115,8 +125,8 @@ end
       fileSizes[files[i].remote] = fileSize
     end
 
-    local pb = injector.addProgressBar('Waiting', lineCountTotal, false)
-    local fl = injector.addFileList('Uploading')
+    local pb = injector.addProgressBar('Upload progress', lineCountTotal, false)
+    local fl = injector.addFileList('Files')
 
     local lineCount = 0
     for i = 1, #files do
@@ -214,6 +224,45 @@ end
 
     injector.addLabel('<FONT size="10"><FONT color="#000080"><b>Redirect boards output (COM' .. self.parameter.com .. ') to console.</b></FONT></FONT>')
 
+    --while true do
+    --  print(coroutine.resume(lineGetter))
+    --end
+    esp:close()
+
+    do
+      source = [[
+print([=[RESTARTMESSAGE]=])
+local sys = require 'sys'
+local serial = require 'serial'
+local esp = serial.new(COM)
+esp:open(BAUD, 8, 'N', 1)
+do
+  local s = ''
+  while true do
+    s = s .. esp:recv()
+    local p = s:find('\n')
+    if p then
+      print(s:sub(1, p - 1))
+      s = s:sub(p + 1)
+    else
+      sys.sleep(0.01)
+    end
+  end
+end
+]]
+      restartMessage = restartMessage:gsub('[\000-\009]', '')
+      restartMessage = restartMessage:gsub('[\011-\031]', '')
+      restartMessage = restartMessage:gsub('[\128-\255]', '')
+      local replaces = {
+        ['RESTARTMESSAGE'] = restartMessage,
+        ['BAUD'] = self.parameter.baud,
+        ['COM'] = self.parameter.com,
+      }
+      source = source:gsub('%a+', replaces)
+      injector.spanLuaConsole('ESP8266 board COM' .. self.parameter.com, source);
+    end
+
+--[[
     while true do
       print(coroutine.resume(lineGetter))
     end
@@ -235,6 +284,7 @@ end
 
     esp:close()
     injector.close()
+ --]]
   end,
 }
 
