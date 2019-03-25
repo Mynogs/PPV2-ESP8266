@@ -10,5 +10,5 @@ To install the block library please look here: [Install blocks](https://github.c
 3. Or use the `nodemcu-master-7-modules-2018-03-06-06-04-14-float.bin` 
 4. Download and use [CH34x_Install_Windows_v3_4.EXE](https://github.com/nodemcu/nodemcu-flasher) to flash the new firmware
 
- :exclamation: You must set the user to **level 2** for p+ to enable remote target injection.
+:exclamation: Set the p+ user level to **Basic** to enable remote target injection.
 
